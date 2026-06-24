@@ -1,0 +1,47 @@
+{
+  "name": "gomission-mcp",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Official runnable Mission MCP server wrapper for Trust Graduation.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://gomission.io",
+  "bugs": {
+    "url": "https://github.com/gomission/mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gomission/mcp.git"
+  },
+  "bin": {
+    "gomission-mcp": "./server.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "mission",
+    "gomission",
+    "trust-graduation",
+    "agent-permission",
+    "agent-governance",
+    "human-in-the-loop",
+    "approvals",
+    "audit-trail",
+    "receipts"
+  ],
+  "files": [
+    "server.mjs",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@gomission/mcp": "^0.2.0"
+  }
+}
