@@ -37,7 +37,7 @@ npm install @trust-graduation/core
 
 - Protocol: https://trustgraduation.org/
 - Reference package: https://www.npmjs.com/package/@trust-graduation/core
-- Mission implementation profile: https://github.com/RonenTanchum/trust-graduation/blob/main/docs/mission-reference-profile.md
+- Mission implementation profile: https://github.com/gomission/trust-graduation/blob/main/docs/mission-reference-profile.md
 
 ## Status
 
