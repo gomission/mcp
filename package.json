@@ -1,0 +1,43 @@
+{
+  "name": "@gomission/mcp",
+  "version": "0.2.1",
+  "description": "Mission Trust Graduation gate for Claude Desktop. Claude can do more for you once Mission decides what it's allowed to do.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://claude.gomission.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gomission/mcp.git"
+  },
+  "bugs": {
+    "url": "https://claude.gomission.io"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-desktop",
+    "trust-graduation",
+    "agent-permission",
+    "mission",
+    "gomission"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "gomission-mcp": "./bin/gomission-mcp.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "verify": "node bin/gomission-mcp.mjs verify"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "mcpName": "io.github.gomission/mcp"
+}
