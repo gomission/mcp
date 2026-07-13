@@ -1,5 +1,7 @@
 # @gomission/mcp
 
+[![Mission MCP Glama score](https://glama.ai/mcp/servers/gomission/mcp/badges/score.svg)](https://glama.ai/mcp/servers/gomission/mcp/score)
+
 > Claude can do more for you once Mission decides what it's allowed to do.
 
 Mission is the permission layer for AI work. This package adds Mission to Claude Desktop as an MCP server. When Claude tries to do something consequential — send email, post publicly, schedule a meeting, spend money, modify an external record — Mission holds the action until you approve. Every action leaves a receipt.
