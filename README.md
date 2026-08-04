@@ -2,6 +2,8 @@
 
 [![Mission MCP Glama score](https://glama.ai/mcp/servers/gomission/mcp/badges/score.svg)](https://glama.ai/mcp/servers/gomission/mcp/score)
 
+Mission MCP is the Trust Graduation gate for Claude and agentic work. It is an integration surface for the paid/full Mission system; the free open-source Focus edition lives in [Mission Lite](https://github.com/gomission/mission-lite) and intentionally has no external-action tools.
+
 > Claude can do more for you once Mission decides what it's allowed to do.
 
 Mission is the permission layer for AI work. This package adds Mission to Claude Desktop as an MCP server. When Claude tries to do something consequential — send email, post publicly, schedule a meeting, spend money, modify an external record — Mission holds the action until you approve. Every action leaves a receipt.
@@ -105,6 +107,13 @@ Opt out per-server (e.g., your internal-only Notion):
 ```
 
 The proxy's own entries (`gomission`, `mission`) are always skipped — the gate never wraps itself.
+
+Protocol references:
+
+- Protocol: https://trustgraduation.org/
+- Reference package: https://www.npmjs.com/package/@trust-graduation/core
+- Current Mission Gate 0.2 profile: https://trustgraduation.org/profiles/mission-gate/0.2/
+- Current schema and conformance source: https://github.com/gomission/trust-graduation/tree/main/packages/mission-schemas
 
 When to pick which mode:
 
