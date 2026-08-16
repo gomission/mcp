@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // Lazy-import sub-modules so `--help`/`--version` work even if the optional
 // serve dependencies are not yet on disk.
@@ -12,9 +12,10 @@ function usage() {
 `gomission-mcp <command>
 
 Commands:
+  demo              Prove an exact consequential call is held before a fake provider.
   install-claude    Add Mission to Claude Desktop's MCP config.
   verify            Check the install: config present, mode classified,
-                    remote endpoint probed with initialize + tools/list.
+                    remote endpoint probed with discover + tools/list.
   serve             Run the local Mission MCP server (used by --local installs).
   --version         Print the package version.
   --help            Show this help.
@@ -29,15 +30,16 @@ install-claude flags:
                     --local. The remote read-only path is never auto-picked.
   --remote          Use the hosted Mission MCP at gomission.io/mcp/. Read-only
                     by protocol — Mission is visible as a tool but does NOT
-                    gate consequential actions. Lowest-friction install.
-  --local           Use a local stdio MCP server with the Trust Graduation
-                    approval ceremony for consequential actions. Requires a
-                    one-time system-prompt instruction (printed after install).
+                    intercept consequential actions. Lowest-friction install.
+  --local           Use a local advisory server that writes exact-action hold
+                    receipts. It does not authorize or execute provider calls.
   --wrap            Use the local Mission proxy: wraps the other mcpServers
-                    in Claude Desktop's config and gates their tool calls
-                    through Trust Graduation. Opt out per-server with
+                    in Claude Desktop's config and intercepts their tool calls
+                    through Trust Graduation. Consequential calls are held;
+                    this open adapter does not resume them from chat approval.
+                    Opt out per-server with
                     MISSION_DONT_WRAP="server1,server2". No system-prompt
-                    instruction needed — gating is automatic per tool call.
+                    instruction needed — interception is automatic per call.
   --token <bearer>  Bearer token for the remote MCP (optional; OAuth flow runs
                     inside Claude Desktop if omitted).
   --remote-url <u>  Override the remote MCP URL (default https://gomission.io/mcp/).
@@ -47,11 +49,12 @@ install-claude flags:
 
 serve flags:
   --wrap            Run the proxy instead of the standalone Trust Graduation
-                    gate. Wraps the other mcpServers from Claude Desktop's
-                    config and gates each tool call.
+                    hold surface. Wraps the other mcpServers from Claude
+                    Desktop's config and intercepts each tool call.
 
 After install:
-  Restart Claude Desktop. Mission gates consequential actions until you approve.
+  Restart Claude Desktop. Wrap mode holds consequential calls before providers;
+  local mode only records advisory holds. Neither trusts chat text as approval.
 
 Learn more: https://claude.gomission.io
 `,
@@ -99,6 +102,16 @@ async function main() {
     process.stdout.write(`${pkg.version}\n`);
     process.exit(0);
   }
+  if (command === "demo") {
+    try {
+      const { runHoldDemo } = await import("../src/demo.mjs");
+      await runHoldDemo();
+      process.exit(0);
+    } catch (error) {
+      process.stderr.write(`Demo failed: ${error.message}\n`);
+      process.exit(1);
+    }
+  }
   if (command === "install-claude") {
     const opts = flags(rest);
     if (!opts.explicitMode) {
@@ -116,7 +129,7 @@ async function main() {
         opts.mode = rec.mode;
         process.stdout.write(`No mode flag provided. Auto-selected --${rec.mode}.\n`);
         process.stdout.write(`Reason: ${rec.reason}\n`);
-        process.stdout.write(`Override with --remote (read-only), --local (approval ceremony), or --wrap (proxy other MCP servers).\n\n`);
+        process.stdout.write(`Override with --remote (read-only), --local (advisory hold), or --wrap (provider-bound hold).\n\n`);
       } catch {
         opts.mode = "local";
       }
@@ -144,24 +157,25 @@ async function main() {
           process.stdout.write("NOT gate consequential actions. Claude can still send email, post, spend, or\n");
           process.stdout.write("modify external records through any other MCP server you have installed.\n");
           process.stdout.write("\n");
-          process.stdout.write("For actual gating:\n");
+          process.stdout.write("For actual pre-provider interception:\n");
           process.stdout.write("  - If you have other MCP servers (gmail, slack, ...) — re-run with --wrap.\n");
-          process.stdout.write("  - For Mission's own approval ceremony — re-run with --local.\n");
+          process.stdout.write("  - For a local exact-binding demonstration — re-run with --local.\n");
         } else if (result.mode === "wrap") {
           process.stdout.write("Restart Claude Desktop. Mission will wrap every other MCP server in your config\n");
-          process.stdout.write("and gate each tool call through Trust Graduation classification.\n");
+          process.stdout.write("and classify each tool call through Trust Graduation.\n");
           process.stdout.write("\n");
           process.stdout.write("Wrap mode is automatic: you do NOT need to tell Claude to use Mission. Every\n");
           process.stdout.write("call to a wrapped tool (gmail/send_email, slack/post_message, etc.) is\n");
-          process.stdout.write("intercepted, classified, and either blocked with a ceremony or forwarded.\n");
+          process.stdout.write("intercepted, classified, and either held with an exact binding or forwarded.\n");
+          process.stdout.write("A chat reply is not authority: this adapter does not resume a held provider call.\n");
           process.stdout.write("\n");
           process.stdout.write("Opt out per-server: set MISSION_DONT_WRAP=\"server1,server2\" in the gomission\n");
           process.stdout.write("env block of claude_desktop_config.json.\n");
           process.stdout.write("\nLearn more: https://claude.gomission.io\n");
         } else {
-          process.stdout.write("Restart Claude Desktop. Mission will gate consequential actions until you approve.\n");
+          process.stdout.write("Restart Claude Desktop. Mission local mode will record exact-action holds.\n");
           // The most important step: without this instruction Claude won't
-          // actually route consequential actions through the gate. Mission is
+          // route consequential actions through the advisory hold. Mission is
           // available as a tool but Claude has no built-in mapping that says
           // "this is consequential, ask Mission first." The user must tell it.
           process.stdout.write("\n");
@@ -171,19 +185,18 @@ async function main() {
           process.stdout.write("Paste this into Claude Desktop's Settings -> Profile ->\n");
           process.stdout.write("Personal preferences, OR at the top of any Mission session:\n");
           process.stdout.write("\n");
-          process.stdout.write("> Mission is my permission layer. Before any external action\n");
+          process.stdout.write("> Before any external action\n");
           process.stdout.write("> (send email, post publicly, schedule, spend, publish, modify\n");
           process.stdout.write("> external records), call the request_approval tool with\n");
-          process.stdout.write("> action_class and a one-line summary, then call\n");
-          process.stdout.write("> mission_check_approval until decision=approved. Do not act\n");
-          process.stdout.write("> until approved. If denied, stop and tell me. If unsure\n");
-          process.stdout.write("> which action_class applies, call mission_classify first.\n");
+          process.stdout.write("> action_class and a one-line summary. Treat its response as\n");
+          process.stdout.write("> a hold, never as approval. Do not act unless the executor\n");
+          process.stdout.write("> independently validates a matching single-use Mission Key.\n");
           process.stdout.write("\n");
-          process.stdout.write("Without this instruction Claude will not gate actions even\n");
-          process.stdout.write("though Mission is installed.\n");
+          process.stdout.write("Local mode is advisory because it is not between another tool\n");
+          process.stdout.write("and its provider. Use --wrap for an enforced pre-provider hold.\n");
           process.stdout.write("\n");
           process.stdout.write("Test it: ask Claude 'send an email to me at <your address>'\n");
-          process.stdout.write("and watch for the approval ceremony in the response.\n");
+          process.stdout.write("and watch for the exact-action hold in the response.\n");
           process.stdout.write("\nLearn more: https://claude.gomission.io\n");
         }
       }

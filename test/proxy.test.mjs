@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // Tests for the Mission MCP proxy. Three load-bearing invariants:
 //   1. External call (email.send.external) gets blocked, returns ceremony + receipt.
@@ -156,9 +156,11 @@ test("invariant 1: external call (send_email) is blocked, ceremony + receipt wri
   const result = await proxy.callTool("gmail__send_email", { to: "stranger@example.com", body: "hi" });
   const text = extractText(result);
 
-  assert.match(text, /Mission is holding this action until you approve/);
+  assert.match(text, /Mission held this consequential action before the provider call/);
   assert.match(text, /email\.send\.external/);
-  assert.match(text, /Receipt id: gm-/);
+  assert.match(text, /does not treat a chat reply as authority/);
+  assert.match(text, /single-use Mission Key/);
+  assert.match(text, /Review receipt id: gm-/);
   assert.equal(gmail.calls.length, 0, "child must not be called when blocked");
 
   const receipts = listReceipts(workspace);
@@ -166,6 +168,9 @@ test("invariant 1: external call (send_email) is blocked, ceremony + receipt wri
   assert.equal(receipts[0].kind, "approval_request");
   assert.equal(receipts[0].action_class, "email.send.external");
   assert.equal(receipts[0].status, "pending_approval");
+  assert.match(receipts[0].action_hash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(receipts[0].input_hash, receipts[0].action_binding.inputHash);
+  assert.equal(receipts[0].action_hash, receipts[0].action_binding.actionHash);
 });
 
 test("invariant 2: local call (read_file) is forwarded to child", async () => {

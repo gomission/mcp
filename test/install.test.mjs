@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // Tests for the @gomission/mcp install module — specifically the smart-default
 // mode recommendation that picks wrap vs. local based on the user's existing

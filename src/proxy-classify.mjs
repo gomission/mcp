@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // In-process classifier for wrapped MCP tool calls. The proxy needs to map
 // (toolName, args) -> canonical action_class + risk so it can decide block vs

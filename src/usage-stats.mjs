@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // Minimal usage stats for paste-step-missed detection.
 //

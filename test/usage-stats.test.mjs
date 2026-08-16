@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 import test from "node:test";
 import assert from "node:assert/strict";

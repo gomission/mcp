@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -8,7 +8,7 @@ import path from "node:path";
 // Use a distinct key from Mission's own CLI (`mission mcp install-claude`,
 // which writes mcpServers.mission). This lets a user keep both:
 // - mcpServers.mission   -> full local Mission install (if present)
-// - mcpServers.gomission -> @gomission/mcp gate (remote or local stub)
+// - mcpServers.gomission -> @gomission/mcp adapter (remote, local hold, or proxy)
 export const SERVER_KEY = "gomission";
 
 export function claudeConfigPath(platform = process.platform, home = os.homedir()) {
@@ -47,7 +47,7 @@ export function buildMissionEntry({ mode = "remote", workspace = "", remoteUrl =
   if (mode === "wrap") {
     // Wrap mode: the proxy reads Claude Desktop's mcpServers map, spawns each
     // qualifying child as a stdio subprocess, multiplexes their tools, and
-    // gates each tools/call through Trust Graduation classification.
+    // classifies each tools/call and holds consequential calls before the child.
     const entry = {
       command: "npx",
       args: ["-y", "@gomission/mcp", "serve", "--wrap"],
@@ -99,10 +99,10 @@ export function writeConfigAtomic(configFile, config) {
 
 // Recommend an install mode based on the user's existing Claude Desktop config.
 // Decision tree:
-//   1. Wrappable MCP children already configured → "wrap" (hard-wired gating,
+//   1. Wrappable MCP children already configured → "wrap" (hard-wired hold,
 //      no system-prompt paste step required).
-//   2. Otherwise → "local" (approval ceremony for Mission's own tools; still
-//      needs the user to instruct Claude to use Mission for the gate to fire).
+//   2. Otherwise → "local" (an advisory exact-binding demonstration; it does
+//      not sit at another tool's provider boundary).
 // The remote read-only path is never auto-selected. Users who explicitly want
 // the lowest-friction visibility-only install pass --remote.
 export async function recommendMode({ existingConfig = null, optOut = null } = {}) {
@@ -115,14 +115,14 @@ export async function recommendMode({ existingConfig = null, optOut = null } = {
   if (wrappable.length > 0) {
     return {
       mode: "wrap",
-      reason: `${wrappable.length} wrappable MCP server${wrappable.length === 1 ? "" : "s"} detected (${wrappable.map((w) => w.name).join(", ")}). Wrap mode gates each tool call automatically; no system-prompt paste step.`,
+      reason: `${wrappable.length} wrappable MCP server${wrappable.length === 1 ? "" : "s"} detected (${wrappable.map((w) => w.name).join(", ")}). Wrap mode intercepts every call and holds consequential ones before the child; no system-prompt paste step.`,
       wrappableCount: wrappable.length,
       wrappableNames: wrappable.map((w) => w.name),
     };
   }
   return {
     mode: "local",
-    reason: "No other MCP servers detected. Local mode runs the Trust Graduation approval ceremony for Mission's own tools.",
+    reason: "No other MCP servers detected. Local mode demonstrates exact Trust Graduation action bindings and review receipts; it is advisory, not an execution boundary.",
     wrappableCount: 0,
     wrappableNames: [],
   };

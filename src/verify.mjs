@@ -1,19 +1,33 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // `gomission-mcp verify` — Self-check for an existing install.
 // Reads Claude Desktop's config, classifies the gomission entry's mode, and
-// optionally probes the remote MCP endpoint with a real initialize +
-// tools/list round-trip. Designed so users can answer "did it install?"
+// optionally probes the remote MCP endpoint with a modern server/discover +
+// tools/list round-trip, falling back to the initialize-era flow when needed.
+// Designed so users can answer "did it install?"
 // without filing a support thread.
 
 import fs from "node:fs";
 import { claudeConfigPath, readExistingConfig, SERVER_KEY, REMOTE_MCP_URL } from "./install.mjs";
 import { pasteStepWarning, readUsageStats } from "./usage-stats.mjs";
-import { PREFERRED_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, isSupportedProtocolVersion } from "./protocol.mjs";
+import {
+  LEGACY_PREFERRED_PROTOCOL_VERSION,
+  MCP_CLIENT_CAPABILITIES_META_KEY,
+  MCP_METHOD_HEADER,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSION_META_KEY,
+  MODERN_PROTOCOL_VERSION,
+  UNSUPPORTED_PROTOCOL_VERSION_ERROR,
+  isSupportedProtocolVersion,
+} from "./protocol.mjs";
 
-const MCP_PROTOCOL_VERSION = PREFERRED_PROTOCOL_VERSION;
+const MCP_PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
 const PROBE_TIMEOUT_MS = 8000;
+
+export function isRecognizedModernProbeError(code) {
+  return [-32020, -32021, UNSUPPORTED_PROTOCOL_VERSION_ERROR].includes(code);
+}
 
 function classifyEntry(entry) {
   if (!entry || typeof entry !== "object") return { mode: "missing" };
@@ -42,9 +56,77 @@ async function probeRemote(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
+    const requestMeta = {
+      [MCP_PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
+      "io.modelcontextprotocol/clientInfo": { name: "gomission-mcp-verify", version: "0" },
+      [MCP_CLIENT_CAPABILITIES_META_KEY]: {},
+    };
+    const discoverResp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        [MCP_PROTOCOL_VERSION_HEADER]: MODERN_PROTOCOL_VERSION,
+        [MCP_METHOD_HEADER]: "server/discover",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "discover-1",
+        method: "server/discover",
+        params: { _meta: requestMeta },
+      }),
+    });
+    const discoverJson = await discoverResp.json().catch(() => null);
+    if (discoverResp.ok && discoverJson?.result?.resultType === "complete") {
+      const supported = discoverJson.result.supportedVersions || [];
+      if (!supported.includes(MODERN_PROTOCOL_VERSION)) {
+        return { ok: false, reason: `server/discover omitted ${MODERN_PROTOCOL_VERSION}` };
+      }
+      const toolsResp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          [MCP_PROTOCOL_VERSION_HEADER]: MODERN_PROTOCOL_VERSION,
+          [MCP_METHOD_HEADER]: "tools/list",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+          params: { _meta: requestMeta },
+        }),
+      });
+      if (!toolsResp.ok) return { ok: false, reason: `modern tools/list returned HTTP ${toolsResp.status}` };
+      const toolsJson = await toolsResp.json();
+      const tools = toolsJson?.result?.tools || [];
+      const names = tools.map((tool) => tool.name);
+      return {
+        ok: true,
+        serverInfo: discoverJson.result?._meta?.["io.modelcontextprotocol/serverInfo"] || null,
+        protocol_version: MODERN_PROTOCOL_VERSION,
+        protocol_era: "stateless",
+        tool_count: tools.length,
+        has_ceremony_primitives: ["mission_status", "request_approval", "log_action", "get_receipt"].every((name) => names.includes(name)),
+      };
+    }
+
+    // Recognized modern errors mean the endpoint is modern but the request is
+    // invalid; silently falling back would hide a conformance regression.
+    const modernErrorCode = discoverJson?.error?.code;
+    const recognizedModernError = isRecognizedModernProbeError(modernErrorCode);
+    if (recognizedModernError) {
+      return { ok: false, reason: `server/discover failed with modern MCP error ${modernErrorCode}: ${discoverJson?.error?.message || "unknown error"}` };
+    }
+
+    // A legacy endpoint commonly answers the probe with 400/404/405 or method
+    // not found. UnsupportedProtocolVersionError is modern-era evidence and
+    // must never trigger a silent initialize fallback.
     const initResp = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
       signal: controller.signal,
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -66,6 +148,7 @@ async function probeRemote(url) {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        accept: "application/json, text/event-stream",
         [MCP_PROTOCOL_VERSION_HEADER]: negotiatedVersion,
       },
       signal: controller.signal,
@@ -79,6 +162,7 @@ async function probeRemote(url) {
       ok: true,
       serverInfo,
       protocol_version: negotiatedVersion,
+      protocol_era: "initialize",
       tool_count: tools.length,
       has_ceremony_primitives: ["mission_status", "request_approval", "log_action", "get_receipt"].every((n) => names.includes(n)),
     };

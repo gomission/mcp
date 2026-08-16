@@ -1,29 +1,38 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
-// Minimal Mission MCP stdio server. Zero dependencies. Implements MCP
-// 2025-11-25 with backwards-compatible negotiation to 2024-11-05 for existing
-// pilots, matching the convention used by Mission's main MCP server in
-// src/mcp-server.mjs.
+// Minimal Mission MCP stdio server. Zero dependencies. Implements stateless
+// MCP 2026-07-28 while retaining initialize-era 2025-11-25 and 2024-11-05 for
+// existing clients and pilots.
 //
-// v0.1.0 ships the Trust Graduation primitives as a permission-layer-only
-// surface: any consequential action class returns an approval-required
-// ceremony with a receipt id. When a Mission workspace is present (via
+// The package ships a deliberately non-executing Trust Graduation surface:
+// consequential proposals return an exact action binding and review receipt.
+// A chat reply is never accepted as execution authority. When a Mission workspace is present (via
 // MISSION_WORKSPACE env or .mission-workspace.json in cwd), receipts are
 // bridged to that workspace's receipts/ directory.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import { PASTE_STEP_SESSION_THRESHOLD, readUsageStats, recordApprovalCall, recordSessionStart } from "./usage-stats.mjs";
 import { discoverFromClaudeConfig, parseOptOut } from "./proxy-discover.mjs";
-import { negotiateProtocolVersion, PREFERRED_PROTOCOL_VERSION } from "./protocol.mjs";
+import { missionAuthorityManifest, missionMcpCapabilities } from "./authority-profile.mjs";
+import { bindMcpToolAction } from "./authority-key.mjs";
+import {
+  LEGACY_PREFERRED_PROTOCOL_VERSION,
+  modernCompleteResult,
+  modernDiscoverResult,
+  negotiateProtocolVersion,
+  readRequestProtocolVersion,
+  validateModernRequestMetadata,
+} from "./protocol.mjs";
 
-const VERSION = "0.1.0";
-// Preferred protocol version. Actual per-session version is negotiated in the
-// initialize handler and stored in `sessionProtocolVersion` for logging.
-const PROTOCOL_VERSION = PREFERRED_PROTOCOL_VERSION;
+const VERSION = "0.3.0-beta.1";
+// initialize only selects an initialize-era protocol. The preferred modern
+// protocol is carried per request and therefore has no session version.
+const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
 let sessionProtocolVersion = "";
 const ACTION_CLASSES = [
   "send_email",
@@ -101,21 +110,25 @@ function receiptsDir(workspace) {
 }
 
 function newReceiptId() {
-  return `gm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `gm-${Date.now().toString(36)}-${crypto.randomBytes(5).toString("hex")}`;
 }
 
 function writeReceipt(workspace, receipt) {
   const file = path.join(receiptsDir(workspace), `${receipt.id}.json`);
-  fs.writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const temp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temp, file);
   return file;
 }
 
-function approvalCeremony({ action_class, summary, receipt_id }) {
+function approvalCeremony({ action_class, summary, receipt_id, action_binding }) {
   return [
-    "Mission is holding this action until you approve.",
+    "Mission recorded and held this proposed consequential action.",
     `Action class: ${action_class}. Summary: ${summary || "no summary provided"}.`,
-    "Why: Trust Graduation gates this class until evidence and approval lift it.",
-    `Receipt id: ${receipt_id}. Approve in Mission Control or reply: "approve ${receipt_id}".`,
+    `Exact action hash: ${action_binding?.actionHash || "unavailable"}.`,
+    action_binding?.expiresAt ? `Binding expires: ${action_binding.expiresAt}.` : "",
+    "Local mode is an advisory hold, not an execution boundary. A trusted executor must validate a matching, single-use Mission Key before acting.",
+    `Review receipt id: ${receipt_id}.`,
   ].join("\n");
 }
 
@@ -129,7 +142,7 @@ const TOOLS = [
   {
     name: "request_approval",
     description:
-      "Mission gates any consequential action. Call this BEFORE executing actions in classes like send_email, post_public, send_dm, schedule_meeting, spend_money, publish_artifact, modify_external_record, change_trust_policy. Mission returns an approval-required ceremony and writes a receipt. Do not proceed without approval.",
+      "Legacy-named advisory hold. Call before a consequential action to produce an exact action binding and local review receipt. This tool does not grant authority or resume execution; the executor must validate a matching single-use Mission Key.",
     inputSchema: {
       type: "object",
       required: ["action_class", "summary"],
@@ -218,15 +231,16 @@ async function callTool(workspace, name, args = {}) {
     }
 
     const lines = [
-      `Mission MCP gate v${VERSION} (local-stub mode)`,
+      `Mission MCP advisory hold v${VERSION} (local mode)`,
       `Workspace: ${workspace}`,
       `Action classes gated by Trust Graduation: ${ACTION_CLASSES.join(", ")}`,
+      `Authority profile: ${JSON.stringify(missionAuthorityManifest())}`,
       localLine,
       pasteLine,
     ];
     if (wrapLine) lines.push(wrapLine);
     lines.push(
-      "Wedge: Claude can do more for you once Mission decides what it's allowed to do.",
+      "Boundary: this local adapter records holds; it does not authorize or execute external effects.",
       "Learn more: https://claude.gomission.io",
     );
     return textContent(lines.join("\n"));
@@ -283,12 +297,22 @@ async function callTool(workspace, name, args = {}) {
   if (name === "request_approval") {
     recordApprovalCall();
     const id = newReceiptId();
+    const actionBinding = bindMcpToolAction({
+      actionClass: args.action_class,
+      workspace,
+      requestedBy: "mcp-client",
+      input: { summary: args.summary, evidence: args.evidence || "" },
+      nonce: id,
+    });
     writeReceipt(workspace, {
       id,
       kind: "approval_request",
       action_class: args.action_class,
       summary: args.summary,
       evidence: args.evidence || "",
+      action_binding: actionBinding,
+      input_hash: actionBinding.inputHash,
+      action_hash: actionBinding.actionHash,
       created_at: new Date().toISOString(),
       status: "pending_approval",
     });
@@ -296,6 +320,7 @@ async function callTool(workspace, name, args = {}) {
       action_class: args.action_class,
       summary: args.summary,
       receipt_id: id,
+      action_binding: actionBinding,
     }));
   }
   if (name === "log_action") {
@@ -336,6 +361,8 @@ function respondError(id, code, message) {
 function handle(workspace, message) {
   const { id, method, params = {} } = message;
   try {
+    if ((id === undefined || id === null) && !String(method || "").startsWith("notifications/")) return;
+    if (method === "notifications/cancelled") return;
     if (method === "initialize") {
       recordSessionStart();
       const negotiation = negotiateProtocolVersion(params?.protocolVersion);
@@ -349,6 +376,39 @@ function handle(workspace, message) {
         capabilities: { tools: {} },
         serverInfo: { name: "gomission", version: VERSION },
       });
+      return;
+    }
+
+    // The modern era is stateless. server/discover is the compatibility probe;
+    // any other modern request declares its era in params._meta.
+    const modernIntent = method === "server/discover" || Boolean(readRequestProtocolVersion(message));
+    if (modernIntent) {
+      const validation = validateModernRequestMetadata(message);
+      if (!validation.ok) {
+        if (validation.response && id !== undefined && id !== null) send(validation.response);
+        return;
+      }
+      if (method === "server/discover") {
+        respond(id, modernDiscoverResult({
+          name: "gomission",
+          version: VERSION,
+          capabilities: missionMcpCapabilities(),
+          instructions: "Use this local surface to record exact-action holds. It is advisory and does not authorize or execute provider effects.",
+          cacheScope: "private",
+        }));
+        return;
+      }
+      if (method === "tools/list") {
+        respond(id, modernCompleteResult({ tools: TOOLS, ttlMs: 300000, cacheScope: "private" }));
+        return;
+      }
+      if (method === "tools/call") {
+        Promise.resolve(callTool(workspace, params.name, params.arguments || {}))
+          .then((result) => respond(id, modernCompleteResult(result)))
+          .catch((error) => respondError(id, -32000, error.message || String(error)));
+        return;
+      }
+      respondError(id, -32601, `Method not found: ${method}`);
       return;
     }
     if (!sessionProtocolVersion && method !== "notifications/initialized") {

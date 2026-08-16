@@ -1,9 +1,10 @@
 {
   "name": "@gomission/mcp",
-  "version": "0.2.1",
-  "description": "Mission Trust Graduation gate for Claude Desktop. Claude can do more for you once Mission decides what it's allowed to do.",
+  "version": "0.3.0-beta.1",
+  "description": "Open MCP interception adapter for exact-action Trust Graduation holds before consequential provider calls.",
   "type": "module",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "Apache-2.0",
+  "author": "Phenomena Labs Ltd <mission@gomission.io> (https://gomission.io)",
   "homepage": "https://claude.gomission.io",
   "repository": {
     "type": "git",
@@ -27,6 +28,11 @@
   "bin": {
     "gomission-mcp": "./bin/gomission-mcp.mjs"
   },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./authority": "./src/authority-key.mjs",
+    "./profile": "./src/authority-profile.mjs"
+  },
   "files": [
     "bin",
     "src",
@@ -34,10 +40,13 @@
     "LICENSE"
   ],
   "scripts": {
+    "demo": "node bin/gomission-mcp.mjs demo",
+    "test": "node --test test/*.test.mjs",
     "verify": "node bin/gomission-mcp.mjs verify"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "beta"
   },
   "mcpName": "io.github.gomission/mcp"
 }

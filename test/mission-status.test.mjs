@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Proprietary and confidential. See LICENSE.
+// Licensed under Apache-2.0. See LICENSE.
 
 // Tests that mission_status surfaces the right gating posture so a curious
 // Claude user can ask "Mission, what is going on?" and get an honest answer:

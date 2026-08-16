@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.gomission/mcp",
-  "title": "Mission \u2014 Trust Graduation Gate",
-  "description": "Trust Graduation gate: Claude can do real work once Mission decides what it is allowed to do.",
+  "title": "Mission Authority Gate",
+  "description": "Open MCP interception adapter for exact-action Trust Graduation holds before consequential provider calls.",
   "websiteUrl": "https://claude.gomission.io",
   "repository": {
     "url": "https://github.com/gomission/mcp",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.3.0-beta.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@gomission/mcp",
-      "version": "0.1.4",
+      "version": "0.3.0-beta.1",
       "transport": {
         "type": "stdio"
       },
@@ -22,7 +22,7 @@
         {
           "type": "named",
           "name": "install-claude",
-          "description": "Write Mission to the local Claude Desktop config. Use --local to run the packaged stdio server; default --remote bridges to claude.gomission.io via mcp-remote."
+          "description": "Install the adapter in Claude Desktop. The default selects provider interception when consequential MCP children exist, otherwise the advisory local exact-binding demo."
         }
       ]
     }
@@ -32,14 +32,5 @@
       "type": "streamable-http",
       "url": "https://claude.gomission.io/mcp/"
     }
-  ],
-  "_meta": {
-    "io.modelcontextprotocol.registry/publisher-provided": {
-      "tool": "mcp-publisher",
-      "version": "1.7.9",
-      "build_info": {
-        "timestamp": "2026-06-12T00:00:00Z"
-      }
-    }
-  }
+  ]
 }

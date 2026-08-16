@@ -2,175 +2,221 @@
 
 [![Mission MCP Glama score](https://glama.ai/mcp/servers/gomission/mcp/badges/score.svg)](https://glama.ai/mcp/servers/gomission/mcp/score)
 
-Mission MCP is the Trust Graduation gate for Claude and agentic work. It is an integration surface for the paid/full Mission system; the free open-source Focus edition lives in [Mission Lite](https://github.com/gomission/mission-lite) and intentionally has no external-action tools.
+Mission’s open MCP interception adapter for exact-action authority.
 
-> Claude can do more for you once Mission decides what it's allowed to do.
+It has one narrow job: sit before a wrapped MCP provider, classify a proposed
+tool call, and hold consequential calls with an immutable Trust Graduation
+action binding. Low-risk calls may pass through. A chat message saying
+“approve” is never treated as authority.
 
-Mission is the permission layer for AI work. This package adds Mission to Claude Desktop as an MCP server. When Claude tries to do something consequential — send email, post publicly, schedule a meeting, spend money, modify an external record — Mission holds the action until you approve. Every action leaves a receipt.
+Status: experimental beta. Apache-2.0. Zero runtime dependencies.
 
-This is the canonical demonstration of **Trust Graduation**: agents earn permission to do real work, action class by action class, through evidence and approval. Capability without permission is not yet trusted work.
+## Prove the boundary first
 
-## One-command install (Claude Desktop)
-
-```bash
-# Auto-recommend the right mode based on your existing Claude Desktop
-# config. If you already have other MCP servers configured (gmail, slack,
-# notion, …), this picks --wrap so each of them is gated. Otherwise it
-# picks --local. The remote read-only path is never auto-selected.
-npx -y @gomission/mcp install-claude
-```
-
-Restart Claude Desktop. What happens next depends on which mode was picked
-(printed at install time).
-
-### The three modes — pick the right gate for your setup
-
-| Mode | What Mission does | Need to paste a system prompt? |
-|---|---|---|
-| `--wrap` | Intercepts every tool call from your other MCP servers (Gmail, Slack, …). Classifies. Blocks consequential calls with an approval ceremony. **Hard-wired.** | No |
-| `--local` | Exposes Mission's own approval tools. Claude must be told to call them before consequential actions. **Soft-wired** — depends on Claude following the instruction. | Yes |
-| `--remote` | Adds Mission as a read-only MCP server. **Does not gate anything.** Useful only for browsing receipts or Mission state. | No (but no gating either) |
-
-If you have other MCP servers configured, `--wrap` is the only mode that
-actually gates them. The bare `install-claude` command auto-detects this
-and picks wrap. Pass `--local` or `--remote` explicitly to override.
+Requirements: Node.js 20 or newer.
 
 ```bash
-# Pick a specific mode:
-npx -y @gomission/mcp install-claude --wrap     # recommended when you have other MCP servers
-npx -y @gomission/mcp install-claude --local    # approval ceremony for Mission's own tools
-npx -y @gomission/mcp install-claude --remote   # read-only Mission state, no gating
+npx -y @gomission/mcp@beta demo
 ```
 
-## Verify the install
+The command uses a fake email provider and prints one machine-readable
+`DEMO_RESULT`. It proves that:
+
+- the consequential provider function was called zero times;
+- the hold contains an exact action and input hash;
+- changing the reviewed input changes the commitment;
+- chat text grants no execution authority.
+
+This proves interception, not completed authorization or production adoption.
+The portable grant/replay proof lives in `@trust-graduation/core`:
 
 ```bash
-npx -y @gomission/mcp verify
+npx -y @trust-graduation/core@beta demo
 ```
 
-Reads Claude Desktop's config, classifies the `gomission` entry mode (remote
-bridge / local stub / local proxy / not installed / broken), and probes the
-live MCP endpoint with a real `initialize` + `tools/list` round-trip. Confirms
-the four Trust Graduation ceremony primitives (`mission_status`,
-`request_approval`, `log_action`, `get_receipt`) are exposed. In wrap mode,
-also lists the children that will be wrapped and any `MISSION_DONT_WRAP`
-opt-outs in effect.
+## The three primitives
 
-Exit codes: 0 = healthy, 2 = not installed, 3 = misconfigured, 4 = probe failed.
+| Primitive | Responsibility | Portable object |
+| --- | --- | --- |
+| Mission Gate | Decide before a provider effect | action decision |
+| Trust Profile | Track earned authority per principal and action class | evidence profile |
+| Mission Key | Authorize one exact action until expiry or revocation | single-use grant |
 
-Add `--json` for machine-readable output, `--no-probe` to skip the round-trip.
+The MCP adapter implements the pre-provider hold. It does not mint a trusted
+Mission Key and it cannot resume a held call. A trusted approval host and
+executor must validate and atomically consume the matching key. The
+experimental A2A continuation is published at:
 
-### Alternative: Custom Connectors UI on claude.ai
+`https://trustgraduation.org/extensions/a2a/action-authorization/v1`
 
-If you use claude.ai (the web app) instead of Claude Desktop, add Mission via the
-Custom Connectors UI:
+## MCP Hold to Exact Provider Execution
 
-1. claude.ai → Settings → Connectors → Add custom connector
-2. URL: `https://claude.gomission.io/mcp/`
-3. Complete OAuth.
+The package root exposes the stable, zero-dependency binding bridge used by an
+external approval host and executor:
 
-This is the only supported remote-MCP path on claude.ai. The `npx` install above
-targets Claude Desktop specifically.
+```js
+import { providerActionFromMcpBinding } from "@gomission/mcp";
+import { createProviderGate } from "@trust-graduation/core";
 
-### Flags
+const gate = createProviderGate({
+  store: sharedAtomicGrantStore,
+  authenticateGrant: verifyApprovalIssuer,
+  provider: existingProviderFunction,
+  writeReceipt: durableReceiptSink
+});
 
-- no mode flag — inspect the existing Claude Desktop config and choose `--wrap` when consequential MCP servers are present, otherwise `--local`.
-- `--wrap` — use the local Mission proxy; wrap other MCP servers and gate each call.
-- `--local` — use a local stdio MCP server with the approval ceremony.
-- `--remote` — use the hosted read-only Mission MCP. This is visibility, not enforcement.
-- `--token <bearer>` — bearer token for the remote MCP (optional).
-- `--remote-url <url>` — override the remote MCP URL.
-- `--workspace <path>` — local mode: bridge receipts to an existing Mission workspace.
-- `--dry-run` — print the planned config change without writing it.
-- `--force` — write the config even if Claude Desktop is not yet installed.
-
-### Wrap mode
-
-Wrap mode is for users who already have other MCP servers configured in Claude Desktop (Gmail, Slack, Notion, GitHub, Stripe, calendar adapters, etc.) and want every consequential call gated without rewriting their workflow.
-
-How it works:
-
-1. The proxy reads Claude Desktop's `mcpServers` map and selects entries whose names or commands look consequential (verbs like `send`, `post`, `email`, `calendar`, `payment`; servers like `gmail`, `slack`, `stripe`).
-2. The proxy spawns each selected entry as a stdio child and aggregates their tools under prefixed names: `gmail__send_email`, `slack__post_message`, etc.
-3. On every `tools/call`, the proxy classifies the call into a canonical Trust Graduation action class (`email.send.external`, `payment.initiate`, `read.context`, …). Risk classes `high` and `critical`, or any classification below confidence 0.6, block the call with an approval ceremony and write a pending-approval receipt. Safer calls forward to the child and produce a `forwarded` receipt.
-4. If the child is unreachable or errors mid-call, the proxy **blocks** rather than passing through. This is the load-bearing safety invariant: an unreachable wrapped server cannot leak an external call.
-
-Opt out per-server (e.g., your internal-only Notion):
-
-```jsonc
-// claude_desktop_config.json
-"gomission": {
-  "command": "npx",
-  "args": ["-y", "@gomission/mcp", "serve", "--wrap"],
-  "env": { "MISSION_DONT_WRAP": "notion,my-internal-server" }
-}
+// Re-read the actual provider input at the final seam; never trust a preview.
+const action = providerActionFromMcpBinding(
+  heldReceipt.action_binding,
+  actualProviderInput
+);
+const execution = await gate.execute({
+  binding: heldReceipt.action_binding,
+  approval: authenticatedMissionKey,
+  action
+});
 ```
 
-The proxy's own entries (`gomission`, `mission`) are always skipped — the gate never wraps itself.
+The bridge verifies binding integrity and maps the intercepted identities,
+target, constraints, expiry, and nonce into the core executor shape. The core
+then re-hashes the actual provider input, authenticates and atomically consumes
+the Key, calls the provider, and writes result-linked evidence. Mutation or
+replay never reaches the provider.
 
-Protocol references:
+For a generated adapter and objective provider-call counters:
+
+```bash
+npm install @trust-graduation/core@beta
+npx trust-graduation init-adapter
+npx trust-graduation conformance ./mission-gate-adapter.mjs --json
+```
+
+With both packages installed, the included compatibility proof is:
+
+```bash
+node node_modules/@trust-graduation/core/examples/mcp-provider-roundtrip.mjs
+```
+
+The MCP proxy still never resumes a held call merely because chat says
+"approve". This bridge is for the separately authenticated approval host and
+provider-bound executor.
+
+## Install for Claude Desktop
+
+```bash
+npx -y @gomission/mcp@beta install-claude
+```
+
+The installer inspects the existing Claude Desktop MCP configuration:
+
+- if it finds consequential MCP servers, it selects `--wrap`;
+- otherwise it selects `--local`, an advisory exact-binding demonstration;
+- it never auto-selects the hosted read-only mode.
+
+Restart Claude Desktop after installation, then verify:
+
+```bash
+npx -y @gomission/mcp@beta verify
+```
+
+`verify` probes modern MCP with `server/discover` and `tools/list`, falling back
+to the initialize-era protocol for older endpoints. Add `--json` for a
+machine-readable report or `--no-probe` to inspect configuration only.
+
+## Modes
+
+| Mode | What it enforces | What it does not do |
+| --- | --- | --- |
+| `--wrap` | Intercepts selected child MCP servers; holds high/critical or low-confidence calls before the child; fails closed if a child is unavailable | Does not resume a held call or trust chat approval |
+| `--local` | Records an advisory exact-action hold and local review receipt | Is not between another tool and its provider |
+| `--remote` | Exposes hosted read-only Mission context | Does not intercept other MCP servers |
+
+Choose explicitly when needed:
+
+```bash
+npx -y @gomission/mcp@beta install-claude --wrap
+npx -y @gomission/mcp@beta install-claude --local
+npx -y @gomission/mcp@beta install-claude --remote
+```
+
+Useful flags:
+
+- `--workspace <path>` — store local receipts in an existing workspace.
+- `--dry-run` — print the configuration change without writing it.
+- `--force` — create configuration even when Claude Desktop is not detected.
+- `--remote-url <url>` — override the hosted endpoint.
+- `MISSION_DONT_WRAP="name1,name2"` — exclude selected MCP children.
+
+## Exact hold contract
+
+For a consequential wrapped call, the adapter writes a local receipt containing:
+
+- action class;
+- privacy-preserving local workspace identifier;
+- requesting MCP child;
+- target when one can be inferred;
+- SHA-256 input commitment;
+- one-execution constraints;
+- expiry and nonce;
+- SHA-256 commitment over the complete binding.
+
+Receipts are written atomically with owner-only file permissions. The adapter
+never stores the raw workspace path inside the binding. A local argument
+summary remains in the receipt for human review, so treat the receipt directory
+as sensitive workspace data.
+
+## MCP compatibility
+
+Preferred protocol: `2026-07-28`.
+
+- stateless per-request `_meta` with client capabilities;
+- mandatory `server/discover`;
+- one JSON-RPC message per HTTP POST; modern batches and client notifications fail closed;
+- HTTP binding for `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`;
+- protocol-defined `HeaderMismatch` and unsupported-version errors;
+- `resultType: "complete"` and cache metadata;
+- initialize-era compatibility for `2025-11-25` and `2024-11-05`.
+
+The authority manifest is advertised through MCP discovery under the
+experimental `mission-authority/v1` capability.
+
+## Security boundary
+
+The adapter does not claim:
+
+- that a model or chat UI authenticated the principal;
+- that a review receipt is an approval grant;
+- exactly-once behavior at an external provider;
+- independent conformance or production validation;
+- global trust in an agent.
+
+Use `@trust-graduation/core` to create and validate exact grants. The executor
+must authenticate the grant issuer, re-bind the actual provider input, atomically
+consume the key, invoke the provider at most once, and reconcile unknown
+provider outcomes.
+
+## Open-core boundary
+
+Free and open:
+
+- this MCP adapter;
+- `@trust-graduation/core` and its schemas;
+- `@gomission/mission-schemas` conformance vocabulary;
+- the A2A exact-action authorization extension;
+- Mission Lite’s local focus app.
+
+Commercial Mission may provide managed policy, trusted approval surfaces,
+hosted audit/receipt operations, organization controls, support, and provider
+integrations. Product entitlements never grant action authority.
+
+## Links
 
 - Protocol: https://trustgraduation.org/
-- Reference package: https://www.npmjs.com/package/@trust-graduation/core
-- Current Mission Gate 0.2 profile: https://trustgraduation.org/profiles/mission-gate/0.2/
-- Current schema and conformance source: https://github.com/gomission/trust-graduation/tree/main/packages/mission-schemas
-
-When to pick which mode:
-
-| You want… | Use |
-|---|---|
-| To actually gate the Gmail/Slack/etc. servers you already have | `--wrap` (recommended; auto-selected when other MCP servers are configured) |
-| Mission's own approval ceremony with persistent receipts | `--local` |
-| Visibility into Mission state from Claude with no enforcement | `--remote` |
-
-### Coexistence with the full Mission product
-
-If you already use Mission (the full operating workspace) and have run its own
-`mission mcp install-claude`, that command writes the `mission` entry in your
-Claude Desktop config. This package writes a distinct `gomission` entry, so both
-can coexist:
-
-- `mcpServers.mission` — full local Mission install (operating workspace).
-- `mcpServers.gomission` — Trust Graduation gate (local proxy or stub), or an explicitly selected remote read-only surface.
-
-## What Claude can and cannot do once installed
-
-Claude can:
-
-- Read your Mission workspace state, open loops, drafts, voice profile, receipts.
-- Prepare drafts, summaries, plans, research.
-- Log safe internal actions and produce receipts.
-- Request approval for consequential actions and surface the gate visibly in conversation.
-
-Claude cannot, without your approval:
-
-- Send email, DMs, or posts.
-- Schedule meetings or change calendar invites.
-- Spend money.
-- Publish artifacts externally.
-- Modify external records.
-- Change Mission's trust policy.
-
-The list of gated action classes is visible at any time. Ask Claude: `mission status`.
-
-## Verify install
-
-```bash
-npx -y @gomission/mcp install-claude --dry-run
-```
-
-Prints the planned config without writing anything.
-
-## Uninstall
-
-Open Claude Desktop's config file (path printed by the install command) and remove the `mission` entry under `mcpServers`. Restart Claude.
-
-## Learn more
-
-- Landing: https://claude.gomission.io
-- Trust Graduation protocol: see the landing page for the open specification.
-- Mission product: https://gomission.io
+- A2A extension: https://trustgraduation.org/extensions/a2a/action-authorization/v1
+- Mission: https://gomission.io/
+- Source: https://github.com/gomission/mcp
 
 ## License
 
-Copyright (c) 2026 Phenomena Labs Ltd. Proprietary and confidential. See `LICENSE`.
+Apache-2.0. Mission names and logos are trademarks; the code license does not
+grant permission to imply endorsement.
