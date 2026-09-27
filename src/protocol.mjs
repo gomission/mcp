@@ -285,7 +285,7 @@ export function validateProtocolVersionHeader(headers, { allowMissingForLegacy =
 /** Build the mandatory modern discovery result. */
 export function modernDiscoverResult({
   name = "mission",
-  version = "0.3.0-beta.1",
+  version = "0.3.0-beta.2",
   capabilities = { tools: {} },
   instructions = "Mission is an authority layer for consequential agent actions.",
   ttlMs = 300000,

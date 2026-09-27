@@ -20,6 +20,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { classifyToolCall, shouldBlock } from "./proxy-classify.mjs";
 import { discoverFromClaudeConfig } from "./proxy-discover.mjs";
+import { readReceiptById } from "./receipt-store.mjs";
 import { missionAuthorityManifest, missionMcpCapabilities } from "./authority-profile.mjs";
 import { bindMcpToolAction } from "./authority-key.mjs";
 import {
@@ -32,7 +33,7 @@ import {
   validateModernRequestMetadata,
 } from "./protocol.mjs";
 
-const VERSION = "0.3.0-beta.1";
+const VERSION = "0.3.0-beta.2";
 const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
 const TOOL_DELIMITER = "__";
 const CHILD_SPAWN_TIMEOUT_MS = 8000;
@@ -322,9 +323,10 @@ export class Proxy {
       return this.textContent(lines.join("\n"));
     }
     if (name === "get_receipt") {
-      const file = path.join(receiptsDir(this.workspace), `${args.receipt_id}.json`);
-      if (!fs.existsSync(file)) return this.textContent(`No receipt found for id: ${args.receipt_id}`);
-      return this.textContent(fs.readFileSync(file, "utf8"));
+      const receipt = readReceiptById(this.workspace, args.receipt_id);
+      if (!receipt.ok) return this.textContent(receipt.error);
+      if (!receipt.found) return this.textContent(`No receipt found for id: ${receipt.id}`);
+      return this.textContent(receipt.text);
     }
     return this.textContent(`Unknown built-in tool: ${name}`);
   }

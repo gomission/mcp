@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 
 import { PASTE_STEP_SESSION_THRESHOLD, readUsageStats, recordApprovalCall, recordSessionStart } from "./usage-stats.mjs";
 import { discoverFromClaudeConfig, parseOptOut } from "./proxy-discover.mjs";
+import { readReceiptById } from "./receipt-store.mjs";
 import { missionAuthorityManifest, missionMcpCapabilities } from "./authority-profile.mjs";
 import { bindMcpToolAction } from "./authority-key.mjs";
 import {
@@ -29,7 +30,7 @@ import {
   validateModernRequestMetadata,
 } from "./protocol.mjs";
 
-const VERSION = "0.3.0-beta.1";
+const VERSION = "0.3.0-beta.2";
 // initialize only selects an initialize-era protocol. The preferred modern
 // protocol is carried per request and therefore has no session version.
 const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
@@ -337,9 +338,10 @@ async function callTool(workspace, name, args = {}) {
     return textContent(`Logged internal action. Receipt id: ${id}`);
   }
   if (name === "get_receipt") {
-    const file = path.join(receiptsDir(workspace), `${args.receipt_id}.json`);
-    if (!fs.existsSync(file)) return textContent(`No receipt found for id: ${args.receipt_id}`);
-    return textContent(fs.readFileSync(file, "utf8"));
+    const receipt = readReceiptById(workspace, args.receipt_id);
+    if (!receipt.ok) return textContent(receipt.error);
+    if (!receipt.found) return textContent(`No receipt found for id: ${receipt.id}`);
+    return textContent(receipt.text);
   }
   return textContent(`Unknown tool: ${name}`);
 }
