@@ -8,13 +8,13 @@
     "url": "https://github.com/gomission/mcp",
     "source": "github"
   },
-  "version": "0.3.0-beta.1",
+  "version": "0.3.0-beta.3",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@gomission/mcp",
-      "version": "0.3.0-beta.1",
+      "version": "0.3.0-beta.3",
       "transport": {
         "type": "stdio"
       },
@@ -25,12 +25,6 @@
           "description": "Install the adapter in Claude Desktop. The default selects provider interception when consequential MCP children exist, otherwise the advisory local exact-binding demo."
         }
       ]
-    }
-  ],
-  "remotes": [
-    {
-      "type": "streamable-http",
-      "url": "https://claude.gomission.io/mcp/"
     }
   ]
 }

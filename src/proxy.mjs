@@ -33,7 +33,7 @@ import {
   validateModernRequestMetadata,
 } from "./protocol.mjs";
 
-const VERSION = "0.3.0-beta.2";
+const VERSION = "0.3.0-beta.3";
 const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
 const TOOL_DELIMITER = "__";
 const CHILD_SPAWN_TIMEOUT_MS = 8000;
