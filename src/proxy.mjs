@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Phenomena Labs Ltd. All rights reserved.
-// Licensed under Apache-2.0. See LICENSE.
+// Proprietary and confidential. See LICENSE.
 
 // Mission MCP proxy. Wraps one or more downstream MCP servers (e.g.,
-// Gmail, Slack, Notion) and intercepts their consequential tool calls through
-// Trust Graduation. Speaks stateless MCP 2026-07-28 plus initialize-era
-// 2025-11-25/2024-11-05 to the parent, and uses the stable initialize-era path
-// for spawned child servers over newline-delimited JSON-RPC.
+// Gmail, Slack, Notion) and gates their consequential tool calls through
+// Trust Graduation. Speaks MCP 2025-11-25 (with backwards-compatible
+// negotiation to 2024-11-05) to the parent (Claude) and to each spawned
+// child server over newline-delimited JSON-RPC.
 //
 // Architecture invariants:
 //   1. tools/list aggregates child tools under prefixed names: "<child>__<tool>".
@@ -16,24 +16,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { classifyToolCall, shouldBlock } from "./proxy-classify.mjs";
 import { discoverFromClaudeConfig } from "./proxy-discover.mjs";
-import { missionAuthorityManifest, missionMcpCapabilities } from "./authority-profile.mjs";
-import { bindMcpToolAction } from "./authority-key.mjs";
-import {
-  LEGACY_PREFERRED_PROTOCOL_VERSION,
-  isSupportedProtocolVersion,
-  modernCompleteResult,
-  modernDiscoverResult,
-  negotiateProtocolVersion,
-  readRequestProtocolVersion,
-  validateModernRequestMetadata,
-} from "./protocol.mjs";
+import { readReceiptById } from "./receipt-store.mjs";
+import { negotiateProtocolVersion, PREFERRED_PROTOCOL_VERSION, isSupportedProtocolVersion } from "./protocol.mjs";
 
-const VERSION = "0.3.0-beta.1";
-const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
+const VERSION = "0.1.0";
+const PROTOCOL_VERSION = PREFERRED_PROTOCOL_VERSION;
 const TOOL_DELIMITER = "__";
 const CHILD_SPAWN_TIMEOUT_MS = 8000;
 const CHILD_CALL_TIMEOUT_MS = 60000;
@@ -54,26 +44,22 @@ function receiptsDir(workspace) {
 }
 
 function newReceiptId() {
-  return `gm-${Date.now().toString(36)}-${crypto.randomBytes(5).toString("hex")}`;
+  return `gm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function writeReceipt(workspace, receipt) {
   const file = path.join(receiptsDir(workspace), `${receipt.id}.json`);
-  const temp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(temp, file);
+  fs.writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
   return file;
 }
 
-function blockCeremony({ tool, action_class, risk, confidence, receipt_id, reason, action_binding }) {
+function blockCeremony({ tool, action_class, risk, confidence, receipt_id, reason }) {
   return [
-    "Mission held this consequential action before the provider call.",
+    "Mission is holding this action until you approve.",
     `Tool: ${tool}. Classified as: ${action_class} (risk ${risk}, confidence ${confidence.toFixed(2)}).`,
     reason ? `Reason: ${reason}` : "",
-    `Exact action hash: ${action_binding?.actionHash || "unavailable"}.`,
-    action_binding?.expiresAt ? `Binding expires: ${action_binding.expiresAt}.` : "",
-    "This open adapter does not treat a chat reply as authority and does not resume the provider call. A trusted executor must validate a matching, single-use Mission Key.",
-    `Review receipt id: ${receipt_id}.`,
+    "Why: Trust Graduation gates external side effects until evidence and approval lift them.",
+    `Receipt id: ${receipt_id}. Approve in Mission Control or reply: "approve ${receipt_id}".`,
   ].filter(Boolean).join("\n");
 }
 
@@ -268,7 +254,7 @@ export class Proxy {
     const out = [
       {
         name: "mission_status",
-        description: "Return Mission proxy hold status, wrapped children, and the Gate/Profile/Key authority manifest.",
+        description: "Return Mission proxy gate status, wrapped children, and Trust Graduation manifest.",
         inputSchema: { type: "object", properties: {} },
       },
       {
@@ -283,7 +269,7 @@ export class Proxy {
         out.push({
           ...tool,
           name: `${name}${TOOL_DELIMITER}${tool.name}`,
-          description: `[intercepted by Mission] ${tool.description || tool.name}`,
+          description: `[wrapped by Mission gate] ${tool.description || tool.name}`,
         });
       }
     }
@@ -315,16 +301,16 @@ export class Proxy {
         const status = child.dead ? `DEAD (${child.deathReason})` : `${child.tools.length} tools`;
         lines.push(`  - ${childName}: ${status}`);
       }
-      lines.push("Gate: Mission classifies every wrapped call; consequential calls are held with an exact action binding and are never resumed from a chat reply.");
-      lines.push(`Authority profile: ${JSON.stringify(missionAuthorityManifest())}`);
+      lines.push("Gate: Mission classifies each wrapped tool call and blocks consequential actions until you approve.");
       lines.push("No system-prompt paste step required — wrap mode intercepts every tool call automatically.");
       lines.push("Learn more: https://claude.gomission.io");
       return this.textContent(lines.join("\n"));
     }
     if (name === "get_receipt") {
-      const file = path.join(receiptsDir(this.workspace), `${args.receipt_id}.json`);
-      if (!fs.existsSync(file)) return this.textContent(`No receipt found for id: ${args.receipt_id}`);
-      return this.textContent(fs.readFileSync(file, "utf8"));
+      const receipt = readReceiptById(this.workspace, args.receipt_id);
+      if (!receipt.ok) return this.textContent(receipt.error);
+      if (!receipt.found) return this.textContent(`No receipt found for id: ${receipt.id}`);
+      return this.textContent(receipt.text);
     }
     return this.textContent(`Unknown built-in tool: ${name}`);
   }
@@ -356,13 +342,6 @@ export class Proxy {
     }
     if (shouldBlock(classification)) {
       const receipt_id = newReceiptId();
-      const action_binding = bindMcpToolAction({
-        actionClass: classification.action_class,
-        workspace: this.workspace,
-        requestedBy: `mcp:${childName}`,
-        input: args,
-        nonce: receipt_id,
-      });
       writeReceipt(this.workspace, {
         id: receipt_id,
         kind: "approval_request",
@@ -372,9 +351,6 @@ export class Proxy {
         risk: classification.risk,
         confidence: classification.confidence,
         classification_reason: classification.reason,
-        action_binding,
-        input_hash: action_binding.inputHash,
-        action_hash: action_binding.actionHash,
         args_summary: summarizeArgs(args),
         created_at: new Date().toISOString(),
         status: "pending_approval",
@@ -386,7 +362,6 @@ export class Proxy {
         confidence: classification.confidence,
         receipt_id,
         reason: classification.reason,
-        action_binding,
       }));
     }
     // Safe to forward.
@@ -449,40 +424,6 @@ export class Proxy {
           capabilities: { tools: {} },
           serverInfo: { name: "gomission-proxy", version: VERSION },
         });
-        return;
-      }
-      const modernIntent = method === "server/discover" || Boolean(readRequestProtocolVersion(message));
-      if (modernIntent) {
-        const validation = validateModernRequestMetadata(message);
-        if (!validation.ok) {
-          if (validation.response) this.send(validation.response);
-          return;
-        }
-        if (method === "server/discover") {
-          this.respond(id, modernDiscoverResult({
-            name: "gomission-proxy",
-            version: VERSION,
-            capabilities: missionMcpCapabilities(),
-            instructions: "Mission intercepts wrapped MCP tools, holds consequential calls with exact action bindings, and never treats chat text as execution authority.",
-            cacheScope: "private",
-          }));
-          return;
-        }
-        if (method === "tools/list") {
-          this.respond(id, modernCompleteResult({
-            tools: this.aggregatedTools(),
-            ttlMs: 60000,
-            cacheScope: "private",
-          }));
-          return;
-        }
-        if (method === "tools/call") {
-          Promise.resolve(this.callTool(params.name, params.arguments || {}))
-            .then((result) => this.respond(id, modernCompleteResult(result)))
-            .catch((error) => this.respondError(id, -32000, error.message || String(error)));
-          return;
-        }
-        this.respondError(id, -32601, `Method not found: ${method}`);
         return;
       }
       if (!this.sessionProtocolVersion && method !== "notifications/initialized") {

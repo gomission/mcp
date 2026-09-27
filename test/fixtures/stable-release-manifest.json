@@ -1,0 +1,78 @@
+{
+  "name": "@gomission/mcp",
+  "version": "0.2.3",
+  "file_count": 13,
+  "allowlist_ok": true,
+  "symlinks": false,
+  "private_or_test_files_packed": false,
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 619,
+      "sha256": "8cdf5f0e21113bd9d55e2324415da1c45c8816a6825638ccc1518125ac99ffde"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7821,
+      "sha256": "ed5d13add54635f7fe431a45514273a6a41cb6333f482844c2c1d739f09d8433"
+    },
+    {
+      "path": "bin/gomission-mcp.mjs",
+      "bytes": 11376,
+      "sha256": "dedbb6f476ddfd7f22e07bd3ec8b1ffad96a29a37c44a9392f5dcdd38391dfb7"
+    },
+    {
+      "path": "package.json",
+      "bytes": 933,
+      "sha256": "36ad91f1f40d646730cb4c1430354e653b98a15bdefd87650a84c794dae843ee"
+    },
+    {
+      "path": "src/install.mjs",
+      "bytes": 6612,
+      "sha256": "5565eedacf0ae672059dc7cd81c64ce4e4664dfa437d52d13b8b260129a96705"
+    },
+    {
+      "path": "src/protocol.mjs",
+      "bytes": 5263,
+      "sha256": "0c1481202b98d5a56e9e5ae0ecf3a92b5901765867647c2ae1fea426285abd37"
+    },
+    {
+      "path": "src/proxy-classify.mjs",
+      "bytes": 8064,
+      "sha256": "2ed29847a951c45ea2f74069877fef61dfef5bdc30c20365216289cf9c26db96"
+    },
+    {
+      "path": "src/proxy-discover.mjs",
+      "bytes": 3283,
+      "sha256": "132baf8e941f7d17e297e264f602b5fc1ef93bd8e096214ac2a374435463dc09"
+    },
+    {
+      "path": "src/proxy.mjs",
+      "bytes": 17392,
+      "sha256": "aa5b74b5a0bb06c90ccb928d663cd50d6d8f33b154556e87caac5e6e6ca7140d"
+    },
+    {
+      "path": "src/receipt-store.mjs",
+      "bytes": 1655,
+      "sha256": "c14f99184fd877fe1d46542278fcf66f2c32f7f964bb2bb5e1efe688498fbdda"
+    },
+    {
+      "path": "src/serve.mjs",
+      "bytes": 16280,
+      "sha256": "5ba1c838329cb6ab577aabc6b174447487a87e068ef6f9b784040f29331de52b"
+    },
+    {
+      "path": "src/usage-stats.mjs",
+      "bytes": 4235,
+      "sha256": "c2c93a1b1305ebde00a06227f700160adfb23868960d7979e946772aa5589856"
+    },
+    {
+      "path": "src/verify.mjs",
+      "bytes": 8512,
+      "sha256": "0060b60e097f9f7f905afede05221b7abd265a8794d29dacff327e12dd7cb7fa"
+    }
+  ],
+  "published_tarball_sha256": "7c2c47ecb037f8f7c58d6b340cfcaf1ff59b654a9bda33b7ed4f48a56ddaf502",
+  "published_tarball_integrity": "sha512-/4xjqAE4q1tfPnIfXiLzn2PRA7/lOrJ2aGlFCET6nY3CyxUuBzrpliP7seiM/qGII7HlnY5TrJaWeKRufKS4zg==",
+  "registry_tarball": "https://registry.npmjs.org/@gomission/mcp/-/mcp-0.2.3.tgz"
+}

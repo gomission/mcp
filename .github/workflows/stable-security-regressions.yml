@@ -1,0 +1,25 @@
+name: Stable security regressions
+on:
+  push:
+    branches: ['codex/mcp-stable-*']
+    tags: ['v0.2.*']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Synthetic stable security and compatibility tests
+        run: node --test test/*.test.mjs
+      - name: Verify published package contents
+        run: |
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/stable-pack.json"
+          python3 tools/verify-stable-package.py "$RUNNER_TEMP/gomission-mcp-0.2.3.tgz"
