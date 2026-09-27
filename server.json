@@ -18,11 +18,10 @@
       "transport": {
         "type": "stdio"
       },
-      "runtimeArguments": [
+      "packageArguments": [
         {
-          "type": "named",
-          "name": "install-claude",
-          "description": "Install the adapter in Claude Desktop. The default selects provider interception when consequential MCP children exist, otherwise the advisory local exact-binding demo."
+          "type": "positional",
+          "value": "serve"
         }
       ]
     }
