@@ -39,8 +39,8 @@ export function tokenize(name = "") {
   return cleaned.toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-// Ordered patterns: first match wins. Each pattern is a set of token-level
-// triggers + a set of negative tokens that suppress the match. Per-token
+// Patterns are evaluated together and the highest-risk match wins. Each pattern
+// is a set of token-level triggers + a set of negative tokens that suppress the match. Per-token
 // matching means \b word-boundary regex bugs (underscore is a word char) don't
 // bite us on snake_case tool names like `read_file` or `gmail_send_message`.
 const PATTERNS = [
@@ -70,7 +70,7 @@ const PATTERNS = [
     name: "email_external",
     any: ["send", "compose"],
     requiresAlso: ["email", "mail", "gmail", "outlook", "message", "messages", "smtp"],
-    not: ["draft", "internal", "search", "read", "list", "get", "fetch"],
+    not: [],
     class: ACTION_CLASSES.EMAIL_SEND_EXTERNAL,
     risk: "high",
     confidence: 0.9,
@@ -81,7 +81,7 @@ const PATTERNS = [
     name: "social_public",
     any: ["tweet", "post"],
     requiresAlso: ["twitter", "linkedin", "facebook", "instagram", "social", "public", "tweet"],
-    not: ["draft", "read", "list", "get", "search"],
+    not: [],
     class: ACTION_CLASSES.SOCIAL_POST_PUBLIC,
     risk: "high",
     confidence: 0.9,
@@ -92,7 +92,7 @@ const PATTERNS = [
     name: "chat_send",
     any: ["send", "post"],
     requiresAlso: ["slack", "discord", "telegram", "teams"],
-    not: ["draft", "read", "list", "get", "search"],
+    not: [],
     class: ACTION_CLASSES.SOCIAL_POST_PUBLIC,
     risk: "high",
     confidence: 0.8,
@@ -103,7 +103,7 @@ const PATTERNS = [
     name: "calendar_write",
     any: ["create", "schedule", "send", "invite"],
     requiresAlso: ["calendar", "event", "meeting", "invite"],
-    not: ["draft", "read", "list", "get", "search"],
+    not: [],
     class: ACTION_CLASSES.CALENDAR_CREATE,
     risk: "high",
     confidence: 0.85,
@@ -162,14 +162,36 @@ function argsLookExternal(args = {}) {
   return false;
 }
 
+const RISK_PRIORITY = { low: 0, medium: 1, high: 2, critical: 3 };
+const OUTBOUND_ARGUMENT_VERBS = new Set([
+  "send", "deliver", "invite", "post", "publish", "submit", "create",
+  "schedule", "pay", "charge", "transfer", "spend",
+]);
+
 export function classifyToolCall({ toolName = "", args = {} } = {}) {
   const name = String(toolName || "").toLowerCase();
   if (!name) {
     return { action_class: ACTION_CLASSES.READ_CONTEXT, risk: "low", confidence: 0, reason: "empty tool name" };
   }
   const tokens = tokenize(name);
-  for (const pattern of PATTERNS) {
-    if (!matchPattern(tokens, pattern)) continue;
+  const matches = PATTERNS
+    .filter((pattern) => matchPattern(tokens, pattern))
+    .sort((left, right) => {
+      const riskDelta = (RISK_PRIORITY[right.risk] || 0) - (RISK_PRIORITY[left.risk] || 0);
+      return riskDelta || right.confidence - left.confidence;
+    });
+  const pattern = matches[0];
+  const externalArgsWithOutboundIntent = argsLookExternal(args)
+    && tokens.some((token) => OUTBOUND_ARGUMENT_VERBS.has(token));
+  if (externalArgsWithOutboundIntent && (!pattern || RISK_PRIORITY[pattern.risk] < RISK_PRIORITY.high)) {
+    return {
+      action_class: ACTION_CLASSES.EMAIL_SEND_EXTERNAL,
+      risk: "high",
+      confidence: 0.75,
+      reason: "outbound tool name carries an external recipient",
+    };
+  }
+  if (pattern) {
     let confidence = pattern.confidence;
     if ((pattern.risk === "high" || pattern.risk === "critical") && argsLookExternal(args)) {
       confidence = Math.min(0.99, confidence + 0.05);

@@ -1,6 +1,6 @@
 {
   "name": "@gomission/mcp",
-  "version": "0.3.0-beta.1",
+  "version": "0.3.0-beta.3",
   "description": "Open MCP interception adapter for exact-action Trust Graduation holds before consequential provider calls.",
   "type": "module",
   "license": "Apache-2.0",

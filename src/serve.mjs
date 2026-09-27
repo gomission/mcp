@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 
 import { PASTE_STEP_SESSION_THRESHOLD, readUsageStats, recordApprovalCall, recordSessionStart } from "./usage-stats.mjs";
 import { discoverFromClaudeConfig, parseOptOut } from "./proxy-discover.mjs";
+import { readReceiptById } from "./receipt-store.mjs";
 import { missionAuthorityManifest, missionMcpCapabilities } from "./authority-profile.mjs";
 import { bindMcpToolAction } from "./authority-key.mjs";
 import {
@@ -29,7 +30,7 @@ import {
   validateModernRequestMetadata,
 } from "./protocol.mjs";
 
-const VERSION = "0.3.0-beta.1";
+const VERSION = "0.3.0-beta.3";
 // initialize only selects an initialize-era protocol. The preferred modern
 // protocol is carried per request and therefore has no session version.
 const PROTOCOL_VERSION = LEGACY_PREFERRED_PROTOCOL_VERSION;
@@ -45,54 +46,80 @@ const ACTION_CLASSES = [
   "change_trust_policy",
 ];
 
-// Bridge to a locally-running Mission web server. `mission web 8814` is the
-// canonical command; users can override the URL with MISSION_LOCAL_URL.
-const MISSION_LOCAL_URL =
-  process.env.MISSION_LOCAL_URL
-  || `http://127.0.0.1:${process.env.MISSION_LOCAL_PORT || "8814"}`;
+// The local web bridge must not discover a workspace by port or infer it from
+// the receipt store. Both the data root and a loopback listener are explicit.
 const MISSION_PROBE_TIMEOUT_MS = 2500;
-const MISSION_ASK_TIMEOUT_MS = 30000;
 
-async function probeMissionLocal() {
+function localBridgeConfig(workspace) {
+  const selected = process.env.MISSION_WORKSPACE || "";
+  if (!selected || !path.isAbsolute(selected)) {
+    return { ok: false, reason: "Set MISSION_WORKSPACE to the absolute workspace data directory before using the local chat bridge." };
+  }
+  let canonicalWorkspace;
+  try {
+    canonicalWorkspace = fs.realpathSync(selected);
+    if (!fs.statSync(canonicalWorkspace).isDirectory() || fs.realpathSync(workspace) !== canonicalWorkspace) {
+      return { ok: false, reason: "The explicit workspace does not match this MCP server's selected workspace." };
+    }
+  } catch {
+    return { ok: false, reason: "The explicit workspace is not an accessible directory." };
+  }
+  const configuredUrl = process.env.MISSION_LOCAL_URL || "";
+  const configuredPort = process.env.MISSION_LOCAL_PORT || "";
+  if (!configuredUrl && !configuredPort) {
+    return { ok: false, reason: "Set an explicit MISSION_LOCAL_URL or MISSION_LOCAL_PORT for the selected workspace. No default port is used." };
+  }
+  // Match the raw URL before parsing: URL normalization must not turn unusual
+  // host spellings, omitted ports, credentials, or paths into accepted input.
+  const rawUrl = configuredUrl || `http://127.0.0.1:${configuredPort}`;
+  const match = /^(https?):\/\/(127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})\/?$/.exec(rawUrl);
+  if (!match || Number(match[3]) > 65535 || (configuredPort && configuredPort !== match[3])) {
+    return { ok: false, reason: "The local bridge requires an explicit loopback URL and port, without credentials, a path, query, or fragment. URL and port settings must agree." };
+  }
+  return { ok: true, workspace: canonicalWorkspace, url: new URL(rawUrl).origin };
+}
+
+async function probeMissionLocal(workspace) {
+  const bridge = localBridgeConfig(workspace);
+  if (!bridge.ok) return bridge;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MISSION_PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(`${MISSION_LOCAL_URL}/api/state`, {
+    // The lightweight identity view avoids reading workspace content or
+    // marking the brain as viewed. Redirects cannot change the target server.
+    const res = await fetch(`${bridge.url}/api/state?active_view=1`, {
       method: "GET",
       headers: { accept: "application/json" },
+      redirect: "error",
       signal: controller.signal,
     });
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) return { ok: false, reason: "The selected local server did not return a workspace identity.", status: res.status };
     const state = await res.json().catch(() => ({}));
-    return { ok: true, workspace: state.workspace || null };
+    if (typeof state?.workspace !== "string" || !path.isAbsolute(state.workspace)) {
+      return { ok: false, reason: "The local server returned an invalid workspace identity." };
+    }
+    let actualWorkspace;
+    try {
+      actualWorkspace = fs.realpathSync(state.workspace);
+    } catch {
+      return { ok: false, reason: "The local server's workspace identity could not be verified." };
+    }
+    if (actualWorkspace !== bridge.workspace) {
+      return { ok: false, reason: "The local server belongs to a different workspace. No query was sent." };
+    }
+    return { ok: true, workspace: bridge.workspace, url: bridge.url };
   } catch (error) {
-    return { ok: false, reason: error.name === "AbortError" ? "timeout" : error.message };
+    return { ok: false, reason: error.name === "AbortError" ? "The workspace identity check timed out." : "The workspace identity check failed. Redirects are not followed." };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function askMissionBrain(query) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MISSION_ASK_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${MISSION_LOCAL_URL}/api/command-capture`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ command: query }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { ok: false, status: res.status, body: text.slice(0, 500) };
-    }
-    return await res.json();
-  } catch (error) {
-    return { ok: false, reason: error.name === "AbortError" ? "timeout" : error.message };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// The desktop API write token is currently ephemeral process state, not a
+// workspace credential file. Do not scrape it from HTML or accept a global
+// token as workspace authority. Until a scoped handoff exists, chat writes
+// stay disabled even after the read-only identity check succeeds.
+const CHAT_AUTH_UNAVAILABLE = "Local chat is unavailable because this adapter has no supported workspace-scoped authentication handoff. Open the selected workspace in Mission to chat. No query was sent.";
 
 function resolveWorkspace(explicit = process.env.MISSION_WORKSPACE || "") {
   if (explicit && fs.existsSync(explicit)) return explicit;
@@ -179,7 +206,7 @@ const TOOLS = [
   {
     name: "mission_ask",
     description:
-      "Talk to Mission's hero chatbox brain. Mission is the user's operating intelligence: it knows the user's open loops, draft queue, voice profile, weekly proof state, learning evidence, and active focus. Use this when the user asks anything about their work, their week, what to approve, what to prepare, who to follow up with, or what Mission thinks. Requires a local Mission running (mission web 8814). Returns the brain's reply array and any prepared actions. Always use this BEFORE drafting a reply or proposing work — Mission already knows what the user is doing.",
+      "Check the explicitly selected local Mission workspace for chat availability. Requires MISSION_WORKSPACE and an explicit loopback MISSION_LOCAL_URL or MISSION_LOCAL_PORT. Chat is currently unavailable until a workspace-scoped authentication handoff is supported; this tool does not forward queries or prepare actions.",
     inputSchema: {
       type: "object",
       required: ["query"],
@@ -196,10 +223,10 @@ function textContent(text) {
 
 async function callTool(workspace, name, args = {}) {
   if (name === "mission_status") {
-    const probe = await probeMissionLocal();
+    const probe = await probeMissionLocal(workspace);
     const localLine = probe.ok
-      ? `Local Mission detected at ${MISSION_LOCAL_URL} (workspace: ${probe.workspace || "unknown"}). mission_ask is wired to the hero chatbox brain.`
-      : `Local Mission not detected at ${MISSION_LOCAL_URL}. Run 'mission web 8814' to enable mission_ask.`;
+      ? `Local Mission workspace identity matches at ${probe.url}. ${CHAT_AUTH_UNAVAILABLE}`
+      : `Local chat unavailable: ${probe.reason}`;
 
     // Paste-step posture: have any approval requests fired in this install's
     // history? If sessions accumulated past the threshold with zero approvals,
@@ -248,51 +275,16 @@ async function callTool(workspace, name, args = {}) {
   if (name === "mission_ask") {
     const query = String(args.query || "").trim();
     if (!query) return textContent("mission_ask requires a non-empty query.");
-    const probe = await probeMissionLocal();
+    const probe = await probeMissionLocal(workspace);
     if (!probe.ok) {
       return textContent(
         [
-          "Mission's hero chatbox brain is not reachable locally.",
-          `Tried: ${MISSION_LOCAL_URL}/api/state (${probe.reason || `HTTP ${probe.status}`}).`,
-          "Run 'mission web 8814' in a terminal, or set MISSION_LOCAL_URL to your Mission web server URL.",
-          "If you do not have Mission installed, visit https://claude.gomission.io and follow the local-install path.",
+          "Local Mission chat is unavailable. No query was sent.",
+          probe.reason,
         ].join("\n"),
       );
     }
-    const result = await askMissionBrain(query);
-    if (!result || result.ok === false) {
-      return textContent(
-        [
-          "Mission brain returned an error.",
-          result?.reason ? `Reason: ${result.reason}` : "",
-          result?.status ? `HTTP ${result.status}` : "",
-          result?.body ? `Body: ${result.body}` : "",
-        ].filter(Boolean).join("\n"),
-      );
-    }
-    const reply = Array.isArray(result.reply) ? result.reply.join("\n") : (result.reply || "");
-    const actions = Array.isArray(result.actions) ? result.actions : [];
-    const decision = result.decision || "answered";
-    const lines = [
-      `Mission brain (${decision}):`,
-      reply || "(no reply text)",
-    ];
-    if (actions.length) {
-      lines.push("", "Prepared actions:");
-      for (const a of actions) {
-        lines.push(`  - [${a.kind || "action"}] ${a.label || a.id || ""}`.trim());
-      }
-    }
-    if (result.proposed_action) {
-      lines.push("", `Proposed action: ${result.proposed_action.decision || ""} — ${result.proposed_action.request || ""}`);
-    }
-    if (result.follow_up_actions?.length) {
-      lines.push("", "Follow-ups available: " + result.follow_up_actions.map((f) => f.label || f.kind).join(", "));
-    }
-    return {
-      content: [{ type: "text", text: lines.join("\n") }],
-      structuredContent: result,
-    };
+    return textContent(CHAT_AUTH_UNAVAILABLE);
   }
   if (name === "request_approval") {
     recordApprovalCall();
@@ -337,9 +329,10 @@ async function callTool(workspace, name, args = {}) {
     return textContent(`Logged internal action. Receipt id: ${id}`);
   }
   if (name === "get_receipt") {
-    const file = path.join(receiptsDir(workspace), `${args.receipt_id}.json`);
-    if (!fs.existsSync(file)) return textContent(`No receipt found for id: ${args.receipt_id}`);
-    return textContent(fs.readFileSync(file, "utf8"));
+    const receipt = readReceiptById(workspace, args.receipt_id);
+    if (!receipt.ok) return textContent(receipt.error);
+    if (!receipt.found) return textContent(`No receipt found for id: ${receipt.id}`);
+    return textContent(receipt.text);
   }
   return textContent(`Unknown tool: ${name}`);
 }

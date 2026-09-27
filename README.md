@@ -129,14 +129,14 @@ machine-readable report or `--no-probe` to inspect configuration only.
 | --- | --- | --- |
 | `--wrap` | Intercepts selected child MCP servers; holds high/critical or low-confidence calls before the child; fails closed if a child is unavailable | Does not resume a held call or trust chat approval |
 | `--local` | Records an advisory exact-action hold and local review receipt | Is not between another tool and its provider |
-| `--remote` | Exposes hosted read-only Mission context | Does not intercept other MCP servers |
+| `--remote` | Requires an explicitly configured, authenticated remote service | The old public PHP endpoint is retired; no hosted service is advertised by this release |
 
 Choose explicitly when needed:
 
 ```bash
 npx -y @gomission/mcp@beta install-claude --wrap
 npx -y @gomission/mcp@beta install-claude --local
-npx -y @gomission/mcp@beta install-claude --remote
+# The legacy public remote is retired. Use the local or provider-interception mode above.
 ```
 
 Useful flags:
@@ -220,3 +220,9 @@ integrations. Product entitlements never grant action authority.
 
 Apache-2.0. Mission names and logos are trademarks; the code license does not
 grant permission to imply endorsement.
+
+## Workspace isolation in 0.3.0-beta.3
+
+The local chat bridge no longer assumes that port 8814 belongs to the selected workspace. An explicit absolute `MISSION_WORKSPACE` and explicit loopback `MISSION_LOCAL_URL` (or `MISSION_LOCAL_PORT`) are required even for the workspace identity probe. Redirects are rejected. Chat forwarding remains unavailable until the desktop provides a supported workspace-scoped authentication handoff; no query is sent by this release. Local advisory holds and receipts continue to work.
+
+The legacy `gomission.io/mcp/` and `claude.gomission.io/mcp/` endpoints are retired. They are not an alternative authentication path.
